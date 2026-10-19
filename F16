@@ -1,0 +1,1853 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
+
+-- ===== ตั้งค่า =====
+local ASSET_ID = 1314822338
+local ENGINE_SOUND_ID = 131316493807389
+local DEFAULT_LANG = "th"       -- "th" หรือ "en"
+local FALLBACK_YAW = 0          -- หัวเครื่องหันผิดทาง ลอง 90 / 180 / -90
+local FALLBACK_SEAT = Vector3.new(0, 1, -1.5)
+local SPAWN_IN_AIR = false
+local GEAR_ADJUST = 0           -- เครื่องจมพื้น +ค่า / ลอยเหนือพื้น -ค่า
+local GEAR_FOLD = 90            -- มุมพับล้อ
+local DOOR_ANGLE = 90
+local DOOR_FLIP = 1
+local REMOVE_PURPLE = true
+local REMOVE_DARK_BALL = true
+local PRECISE_MESH = true       -- ตั้งโมเดลให้ละเอียดคงที่ (ภาพไม่แตก) ถ้าแล็กให้ปิดเป็น false
+local CAM_ROLL_FREE = 0.15      -- กล้องมุมอิสระตามการหมุน (roll) ของเครื่องกี่ส่วน (0 = ไม่หมุนตาม)
+local CAM_ROLL_FIRST = 0.6
+local CAM_SMOOTH_FREE = 3.5     -- ยิ่งน้อย ยิ่งหน่วงนุ่ม
+local CAM_SMOOTH_FIRST = 8
+local MAX_SPEED = 320
+local AB_MULT = 1.5
+local STALL_SPEED = 70
+local ROTATE_SPEED = 100
+local GUN_MAX = 511
+local FALLBACK_AMMO = {bomb = 8, agm = 4, aam = 2}
+local PITCH_RATE, ROLL_RATE, YAW_RATE, BANK_TURN = 1.0, 2.6, 0.5, 0.35
+
+local LADDER_WORDS = {"ladder", "stair", "boarding", "step"}
+local DOOR_WORDS = {"door", "hatch"}
+local GEAR_WORDS = {"gear", "wheel", "tire", "tyre", "strut", "axle", "landing", "bogie"}
+local ORD_WORDS = {"bomb", "missile", "aim9", "aim-9", "aim_9", "aim120", "aim-120", "aim_120", "agm", "gbu", "jdam",
+	"rocket", "sidewinder", "amraam", "maverick", "paveway", "mk82", "mk-82", "mk84", "mk-84", "munition", "ordnance"}
+-- ไอดีที่จิ้มเลือกไว้ (สคริปต์ copy ให้หลังกดปุ่ม + / - วางทับตรงนี้)
+local REMOVE_IDS = {}
+local GEAR_IDS = {}
+local DOOR_IDS = {}
+local BOMB_IDS = {}
+local AGM_IDS = {}
+local AAM_IDS = {}
+
+local player = Players.LocalPlayer
+local cam = workspace.CurrentCamera
+
+-- ลบ GUI เก่าถ้ารันซ้ำ
+do
+	local old = player:WaitForChild("PlayerGui"):FindFirstChild("F16HUD")
+	if old then old:Destroy() end
+end
+
+-- ===== สี (เทา-ดำ) =====
+local BG = Color3.fromRGB(20, 20, 22)
+local EDGE = Color3.fromRGB(95, 97, 102)
+local TXT = Color3.fromRGB(228, 229, 233)
+local DIM = Color3.fromRGB(140, 142, 148)
+local RED = Color3.fromRGB(220, 80, 70)
+
+-- ===== ภาษา =====
+local T = {
+	en = {
+		spawn = "SPAWN F-16", menu = "MENU", standby = "STANDBY", thr = "THR",
+		remove_jet = "REMOVE JET", cam_free = "VIEW: FREE", cam_first = "VIEW: 1ST", cam_reset = "RESET VIEW",
+		dist_p = "DIST +", dist_m = "DIST -", hgt_p = "HEIGHT +", hgt_m = "HEIGHT -", fov_p = "FOV +", fov_m = "FOV -",
+		seat_fwd = "SEAT FWD", seat_back = "SEAT BACK", seat_up = "SEAT UP", seat_down = "SEAT DOWN",
+		seat_l = "SEAT L", seat_r = "SEAT R", tilt_p = "TILT +", tilt_m = "TILT -", seat_reset = "SEAT RESET",
+		pick_on = "PICK: ON", pick_off = "PICK: OFF", sel_up = "SEL UP", near = "NEAR >", low = "LOW >",
+		show_gear = "SHOW GEAR", add_gear = "+GEAR", del_gear = "-GEAR", clr_gear = "CLR GEAR",
+		add_door = "+DOOR", add_door_in = "+DOOR-IN", add_bomb = "+BOMB", add_agm = "+AGM", add_aam = "+AAM", delete = "+DELETE",
+		ab_on = "AB: ON", ab_off = "AB: OFF", eng_on = "ENG: ON", eng_off = "ENG: OFF", brake = "BRAKE", exit = "EXIT",
+		gear_dn = "GEAR: DN", gear_up = "GEAR: UP",
+		c_up = "UP", c_dn = "DOWN", c_rl = "ROLL L", c_rr = "ROLL R", c_yl = "TURN L", c_yr = "TURN R",
+		w_gun = "GUN", w_bomb = "BOMB", w_agm = "AGM", w_aam = "AAM", fire_gun = "FIRE GUN", launch = "LAUNCH",
+		spd = "SPD", alt = "ALT", hdg = "HDG",
+		st_parked = "PARKED", st_engoff = "ENG OFF", st_gnd = "GND", st_gup = "G-UP",
+		h_stop = "STOP FIRST: LAND + BRAKE", h_gear_lock = "GEAR LOCKED ON GROUND", h_gear_auto = "GEAR AUTO-DOWN",
+		h_noammo = "NO %s LEFT", h_lower = "LOWER GEAR FIRST",
+		parked_msg = "PARKED - walk close + SPAWN to re-enter",
+		sel = "SEL: %s #%s", gear_added = "GEAR +%d", door_added = "DOOR +%d", gear_removed = "REMOVED FROM GEAR/DOOR",
+		gear_cleared = "GEAR CLEARED - pick, then +GEAR", ord_added = "%s +1 (total %d)", deleted = "DELETED",
+		show_info = "GEAR %d (green) | DOOR %d (blue)",
+	},
+	th = {
+		spawn = "เรียก F-16", menu = "เมนู", standby = "พร้อม", thr = "คันเร่ง",
+		remove_jet = "ลบเครื่อง", cam_free = "มุมมอง: อิสระ", cam_first = "มุมมอง: บุคคลที่ 1", cam_reset = "รีเซ็ตมุม",
+		dist_p = "ไกล +", dist_m = "ใกล้ -", hgt_p = "สูง +", hgt_m = "ต่ำ -", fov_p = "FOV +", fov_m = "FOV -",
+		seat_fwd = "เบาะ หน้า", seat_back = "เบาะ หลัง", seat_up = "เบาะ ขึ้น", seat_down = "เบาะ ลง",
+		seat_l = "เบาะ ซ้าย", seat_r = "เบาะ ขวา", tilt_p = "เอนหลัง +", tilt_m = "เอนหลัง -", seat_reset = "รีเซ็ตเบาะ",
+		pick_on = "เลือก: เปิด", pick_off = "เลือก: ปิด", sel_up = "เลือกกลุ่ม", near = "ใกล้ >", low = "ล่างสุด >",
+		show_gear = "ดูล้อ", add_gear = "+ล้อ", del_gear = "-ล้อ", clr_gear = "ล้างล้อ",
+		add_door = "+ฝาล้อ", add_door_in = "+ฝาล้อ(ใน)", add_bomb = "+ระเบิด", add_agm = "+AGM", add_aam = "+AAM", delete = "+ลบชิ้น",
+		ab_on = "AB: เปิด", ab_off = "AB: ปิด", eng_on = "เครื่อง: เปิด", eng_off = "เครื่อง: ดับ", brake = "เบรก", exit = "ลงจากเครื่อง",
+		gear_dn = "ล้อ: ลง", gear_up = "ล้อ: เก็บ",
+		c_up = "ขึ้น", c_dn = "ลง", c_rl = "หมุนซ้าย", c_rr = "หมุนขวา", c_yl = "เลี้ยวซ้าย", c_yr = "เลี้ยวขวา",
+		w_gun = "ปืนกล", w_bomb = "ระเบิด", w_agm = "AGM", w_aam = "AAM", fire_gun = "ยิงปืน", launch = "ปล่อยอาวุธ",
+		spd = "ความเร็ว", alt = "สูง", hdg = "ทิศ",
+		st_parked = "จอดแล้ว", st_engoff = "ดับเครื่อง", st_gnd = "บนพื้น", st_gup = "ล้อเก็บ",
+		h_stop = "หยุดเครื่องก่อน: ลงจอด + เบรก", h_gear_lock = "ล้อล็อกบนพื้น", h_gear_auto = "ปล่อยล้อลงอัตโนมัติ",
+		h_noammo = "%s หมดแล้ว", h_lower = "ปล่อยล้อลงก่อน",
+		parked_msg = "จอดแล้ว - เดินเข้าใกล้ แล้วกดเรียก F-16 เพื่อขึ้นเครื่องอีกครั้ง",
+		sel = "เลือก: %s #%s", gear_added = "เพิ่มล้อ +%d", door_added = "เพิ่มฝาช่องล้อ +%d", gear_removed = "เอาออกจากชุดล้อแล้ว",
+		gear_cleared = "ล้างชุดล้อแล้ว - เลือกแล้วกด +ล้อ", ord_added = "%s +1 (รวม %d)", deleted = "ลบแล้ว",
+		show_info = "ล้อ %d (เขียว) | ฝาช่องล้อ %d (น้ำเงิน)",
+	},
+}
+local lang = (DEFAULT_LANG == "en") and "en" or "th"
+
+local function tr(key, ...)
+	local s = (T[lang] and T[lang][key]) or T.en[key] or key
+	if select("#", ...) > 0 then return s:format(...) end
+	return s
+end
+
+local registry = {}
+local function ui()
+	for _, r in ipairs(registry) do
+		r.obj.Text = r.text()
+		if r.color then r.obj.TextColor3 = r.color() end
+	end
+end
+
+-- ===== สถานะ (เป็น global เพื่อไม่ให้เกินขีดจำกัด local 200 ตัวของ Luau) =====
+jet, flying = nil, false
+ctrl, jetPos = CFrame.new(), Vector3.zero
+camLook, camUpV = Vector3.new(0, 0, -1), Vector3.yAxis
+speed, throttle, ab = 0, 0.5, false
+engineOn, brake, onGround = true, false, false
+lastBomb, bombSide, rearmTimer = 0, 1, 0
+shake = 0
+keys = {}
+hold = {up = false, down = false, rl = false, rr = false, yl = false, yr = false}
+pitchIn, rollIn, yawIn = 0, 0, 0
+camDist, camHeight, camFov = 55, 14, 70
+camYaw, camPitch = 0, 0
+camMode = "FREE"            -- FREE = มุมมองอิสระ / FIRST = บุคคลที่ 1
+yawOff = FALLBACK_YAW
+seatBase = FALLBACK_SEAT
+seatNudge = Vector3.zero
+seatTilt = 0
+centerOff = Vector3.zero
+fwdAxis = Vector3.new(0, 0, -1)
+gearH = 6
+jetDiag, jetSizeY = 20, 8
+hint, hintUntil = "", 0
+gearParts, gearSet = {}, {}
+doorParts, doorSet = {}, {}
+gearUp, gearAnim, lastS, lastEd = false, 0, 0, 0
+gearHL = {}
+jetParts, hiddenNear, nextHide = {}, {}, 0
+ordList, ordUnitSet, ordPartSet = {}, {}, {}
+weapon, ammoType, bombSub, aamSub = 2, "HEI", 1, 1
+gunAmmo, gunAcc, tracerCount, firing = GUN_MAX, 0, 0, false
+fallback = table.clone(FALLBACK_AMMO)
+BOMB_TYPES = {"Mk82", "Mk84", "JDAM", "Paveway"}
+AAM_TYPES = {"AIM-9", "AIM-120"}
+KIND = {false, "bomb", "agm", "aam"}
+WKEY = {"w_gun", "w_bomb", "w_agm", "w_aam"}
+pickMode, selected, selHL = false, nil, nil
+candNear, candLow, cycIdx = {}, {}, {near = 0, low = 0}
+sessRemove = {table.unpack(REMOVE_IDS)}
+cntCache = {}
+
+local function mk(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	o.Parent = parent
+	return o
+end
+
+local function say(text, secs)
+	hint, hintUntil = text, os.clock() + (secs or 2)
+end
+
+local fx = workspace:FindFirstChild("F16_FX") or mk("Folder", {Name = "F16_FX"}, workspace)
+local rp = RaycastParams.new()
+rp.FilterType = Enum.RaycastFilterType.Exclude
+local bombRP = RaycastParams.new()
+bombRP.FilterType = Enum.RaycastFilterType.Exclude
+
+local engSnd = mk("Sound", {
+	SoundId = "rbxassetid://" .. ENGINE_SOUND_ID,
+	Looped = true, Volume = 0, PlaybackSpeed = 0.6,
+}, SoundService)
+
+-- ===== GUI (แบ่งเป็นกลุ่ม ย่อ/ขยายตามขนาดจอ ไม่ซ้อนกัน) =====
+local gui = mk("ScreenGui", {Name = "F16HUD", ResetOnSpawn = false}, player:WaitForChild("PlayerGui"))
+
+local scales = {}
+local function cluster(anchor, pos, w, h)
+	local f = mk("Frame", {
+		AnchorPoint = anchor, Position = pos, Size = UDim2.fromOffset(w, h), BackgroundTransparency = 1,
+	}, gui)
+	table.insert(scales, mk("UIScale", {Scale = 1}, f))
+	return f
+end
+local function rescale()
+	local W, H = gui.AbsoluteSize.X, gui.AbsoluteSize.Y
+	if W < 10 or H < 10 then return end
+	local s = math.clamp(math.min((W - 16) / 840, H / 450), 0.5, 1)
+	for _, u in ipairs(scales) do u.Scale = s end
+end
+
+local topLeft = cluster(Vector2.new(0, 0), UDim2.fromOffset(8, 58), 150, 98)
+local botLeft = cluster(Vector2.new(0, 1), UDim2.new(0, 8, 1, -8), 212, 270)
+local botRight = cluster(Vector2.new(1, 1), UDim2.new(1, -8, 1, -8), 200, 256)
+local hudBox = cluster(Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -8), 420, 28)
+local panel = cluster(Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 58), 336, 264)
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(rescale)
+
+local function isPress(i)
+	return i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1
+end
+
+-- key = คีย์ภาษา (string) หรือ function คืนข้อความ
+local function button(parent, key, x, y, w, h, cb, colorFn)
+	local textFn = type(key) == "function" and key or function() return tr(key) end
+	local b = mk("TextButton", {
+		Text = "", Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h),
+		BackgroundColor3 = BG, BackgroundTransparency = 0.12, TextColor3 = TXT,
+		Font = Enum.Font.GothamMedium, TextScaled = true, BorderSizePixel = 0, AutoButtonColor = true,
+	}, parent)
+	mk("UICorner", {CornerRadius = UDim.new(0, 5)}, b)
+	mk("UIStroke", {Color = EDGE, Thickness = 1.2}, b)
+	mk("UITextSizeConstraint", {MaxTextSize = 14, MinTextSize = 8}, b)
+	mk("UIPadding", {PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4)}, b)
+	if cb then b.Activated:Connect(cb) end
+	table.insert(registry, {obj = b, text = textFn, color = colorFn})
+	return b
+end
+
+local function bindDrag(frame, onUpdate)
+	local active
+	frame.InputBegan:Connect(function(i)
+		if isPress(i) then
+			active = i
+			onUpdate(i.Position)
+		end
+	end)
+	UIS.InputChanged:Connect(function(i)
+		if active and (i == active or (active.UserInputType == Enum.UserInputType.MouseButton1 and i.UserInputType == Enum.UserInputType.MouseMovement)) then
+			onUpdate(i.Position)
+		end
+	end)
+	UIS.InputEnded:Connect(function(i)
+		if i == active then active = nil end
+	end)
+end
+
+-- แถบข้อมูล (ล่างกลาง)
+local hudText = mk("TextLabel", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = BG, BackgroundTransparency = 0.3, TextColor3 = TXT,
+	Font = Enum.Font.GothamMedium, TextScaled = true, Text = "", BorderSizePixel = 0,
+}, hudBox)
+mk("UICorner", {CornerRadius = UDim.new(0, 5)}, hudText)
+mk("UIStroke", {Color = EDGE, Thickness = 1}, hudText)
+mk("UITextSizeConstraint", {MaxTextSize = 14, MinTextSize = 8}, hudText)
+
+local horizonBox = mk("Frame", {
+	Size = UDim2.fromOffset(200, 200), AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0.5, 0), BackgroundTransparency = 1, ClipsDescendants = true, Visible = false,
+}, gui)
+local horizon = mk("Frame", {
+	Size = UDim2.fromOffset(180, 2), AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0.5, 0), BackgroundColor3 = TXT,
+	BackgroundTransparency = 0.35, BorderSizePixel = 0,
+}, horizonBox)
+local cross = mk("TextLabel", {
+	Size = UDim2.fromOffset(60, 20), AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0.5, 0), BackgroundTransparency = 1, Text = "-[ + ]-",
+	TextColor3 = TXT, Font = Enum.Font.GothamMedium, TextSize = 15, Visible = false,
+}, gui)
+
+-- ซ้ายบน: เรียกเครื่อง / เมนู / ภาษา
+button(topLeft, "spawn", 0, 0, 140, 30, function() startFlying() end)
+local menuBtn = button(topLeft, "menu", 0, 34, 140, 28, nil)
+button(topLeft, function() return "ไทย" end, 0, 66, 68, 26, function() lang = "th"; ui() end,
+	function() return lang == "th" and TXT or DIM end)
+button(topLeft, function() return "EN" end, 72, 66, 68, 26, function() lang = "en"; ui() end,
+	function() return lang == "en" and TXT or DIM end)
+
+-- แผงเมนู (กลางจอด้านบน)
+panel.Visible = false
+local panelBg = mk("Frame", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = BG, BackgroundTransparency = 0.15, BorderSizePixel = 0,
+}, panel)
+mk("UICorner", {CornerRadius = UDim.new(0, 6)}, panelBg)
+mk("UIStroke", {Color = EDGE, Thickness = 1.2}, panelBg)
+local grid = mk("Frame", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1}, panelBg)
+mk("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6)}, grid)
+mk("UIGridLayout", {CellSize = UDim2.fromOffset(78, 28), CellPadding = UDim2.fromOffset(4, 4), SortOrder = Enum.SortOrder.LayoutOrder}, grid)
+
+local function pbtn(key, cb, colorFn)
+	return button(grid, key, 0, 0, 78, 28, cb, colorFn)
+end
+local function red() return RED end
+
+pbtn("remove_jet", function() if jet then stopFlying() end end, red)
+pbtn(function() return tr(camMode == "FREE" and "cam_free" or "cam_first") end, function() toggleCam() end)
+pbtn("cam_reset", function() camYaw, camPitch = 0, 0 end)
+pbtn("dist_p", function() camDist = math.min(camDist + 8, 250) end)
+pbtn("dist_m", function() camDist = math.max(camDist - 8, 5) end)
+pbtn("hgt_p", function() camHeight = math.min(camHeight + 3, 100) end)
+pbtn("hgt_m", function() camHeight = math.max(camHeight - 3, -30) end)
+pbtn("fov_p", function() camFov = math.min(camFov + 5, 110) end)
+pbtn("fov_m", function() camFov = math.max(camFov - 5, 35) end)
+pbtn("seat_fwd", function() seatNudge += Vector3.new(0, 0, -0.4) end)
+pbtn("seat_back", function() seatNudge += Vector3.new(0, 0, 0.4) end)
+pbtn("seat_up", function() seatNudge += Vector3.new(0, 0.3, 0) end)
+pbtn("seat_down", function() seatNudge += Vector3.new(0, -0.3, 0) end)
+pbtn("seat_l", function() seatNudge += Vector3.new(-0.3, 0, 0) end)
+pbtn("seat_r", function() seatNudge += Vector3.new(0.3, 0, 0) end)
+pbtn("tilt_p", function() seatTilt = math.clamp(seatTilt + 5, -60, 60) end)
+pbtn("tilt_m", function() seatTilt = math.clamp(seatTilt - 5, -60, 60) end)
+pbtn("seat_reset", function() seatNudge, seatTilt = Vector3.zero, 0 end)
+pbtn(function() return tr(pickMode and "pick_on" or "pick_off") end, function() togglePick() end,
+	function() return pickMode and RED or TXT end)
+pbtn("sel_up", function() selUp() end)
+pbtn("near", function() cycleNear() end)
+pbtn("low", function() cycleLow() end)
+pbtn("show_gear", function() showGear() end)
+pbtn("add_gear", function() markGear() end)
+pbtn("del_gear", function() unmarkGear() end)
+pbtn("clr_gear", function() clearGear() end)
+pbtn("add_door", function() markDoor(false) end)
+pbtn("add_door_in", function() markDoor(true) end)
+pbtn("add_bomb", function() markOrd("bomb") end)
+pbtn("add_agm", function() markOrd("agm") end)
+pbtn("add_aam", function() markOrd("aam") end)
+pbtn("delete", function() markRemove() end, red)
+
+menuBtn.Activated:Connect(function() panel.Visible = not panel.Visible end)
+
+-- ===== ซ้ายล่าง: คันเร่ง + ปุ่มระบบ + เลี้ยวซ้าย/ขวา =====
+local thrBox = mk("Frame", {
+	Size = UDim2.fromOffset(44, 200), Position = UDim2.fromOffset(0, 66),
+	BackgroundColor3 = BG, BackgroundTransparency = 0.25, BorderSizePixel = 0, Active = true,
+}, botLeft)
+mk("UICorner", {CornerRadius = UDim.new(0, 5)}, thrBox)
+mk("UIStroke", {Color = EDGE, Thickness = 1.2}, thrBox)
+local thrFill = mk("Frame", {
+	AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 3, 1, -3),
+	Size = UDim2.new(1, -6, 0.5, 0), BackgroundColor3 = TXT, BackgroundTransparency = 0.15, BorderSizePixel = 0,
+}, thrBox)
+mk("UICorner", {CornerRadius = UDim.new(0, 3)}, thrFill)
+local thrLabel = mk("TextLabel", {
+	Size = UDim2.fromOffset(44, 16), Position = UDim2.fromOffset(0, 46), BackgroundTransparency = 1,
+	Text = "", TextColor3 = DIM, Font = Enum.Font.GothamMedium, TextScaled = true,
+}, botLeft)
+mk("UITextSizeConstraint", {MaxTextSize = 12, MinTextSize = 7}, thrLabel)
+table.insert(registry, {obj = thrLabel, text = function() return tr("thr") end})
+local function showThrottle()
+	thrFill.Size = UDim2.new(1, -6, throttle, -6 * (1 - throttle))
+end
+bindDrag(thrBox, function(pos)
+	throttle = math.clamp(1 - (pos.Y - thrBox.AbsolutePosition.Y) / thrBox.AbsoluteSize.Y, 0, 1)
+	showThrottle()
+end)
+showThrottle()
+
+local function setAB(v)
+	ab = v
+	ui()
+end
+local function setEngine(v)
+	engineOn = v
+	if not v then ab = false end
+	ui()
+end
+
+button(botLeft, function() return tr(ab and "ab_on" or "ab_off") end, 52, 0, 160, 28,
+	function() if engineOn then setAB(not ab) end end, function() return ab and RED or TXT end)
+button(botLeft, function() return tr(engineOn and "eng_on" or "eng_off") end, 52, 34, 160, 28,
+	function() if flying then setEngine(not engineOn) end end, function() return engineOn and TXT or RED end)
+button(botLeft, "brake", 52, 68, 160, 28, function() brake = not brake; ui() end,
+	function() return brake and RED or TXT end)
+button(botLeft, function() return tr(gearUp and "gear_up" or "gear_dn") end, 52, 102, 160, 28, function() toggleGear() end)
+button(botLeft, "exit", 52, 136, 160, 28, function() exitJet() end)
+
+local function holdButton(parent, x, y, w, h, glyph, key, flag)
+	local b = button(parent, function() return glyph .. "\n" .. tr(key) end, x, y, w, h, nil)
+	b.InputBegan:Connect(function(i) if isPress(i) then hold[flag] = true end end)
+	b.InputEnded:Connect(function(i) if isPress(i) then hold[flag] = false end end)
+	return b
+end
+
+holdButton(botLeft, 52, 190, 78, 76, "◀", "c_yl", "yl")
+holdButton(botLeft, 134, 190, 78, 76, "▶", "c_yr", "yr")
+
+-- ===== ขวาล่าง: อาวุธ + ขึ้น/ลง + หมุนซ้าย/ขวา =====
+button(botRight, function() return "W: " .. tr(WKEY[weapon]) end, 0, 0, 96, 28, function() cycleWeapon() end)
+button(botRight, function()
+	if weapon == 1 then return ammoType
+	elseif weapon == 2 then return BOMB_TYPES[bombSub]
+	elseif weapon == 3 then return "HEAT"
+	else return AAM_TYPES[aamSub] end
+end, 104, 0, 96, 28, function() cycleSub() end)
+
+local fireBtn = button(botRight, function() return tr(weapon == 1 and "fire_gun" or "launch") end, 0, 34, 200, 38, nil, red)
+fireBtn.InputBegan:Connect(function(i) if isPress(i) then onFireDown() end end)
+fireBtn.InputEnded:Connect(function(i) if isPress(i) then firing = false end end)
+
+holdButton(botRight, 72, 80, 56, 56, "▲", "c_up", "up")
+holdButton(botRight, 8, 140, 56, 56, "<", "c_rl", "rl")
+holdButton(botRight, 136, 140, 56, 56, ">", "c_rr", "rr")
+holdButton(botRight, 72, 200, 56, 56, "▼", "c_dn", "down")
+
+rescale()
+
+-- ===== ตัวช่วย =====
+local function setControls(on)
+	pcall(function()
+		local c = require(player.PlayerScripts:WaitForChild("PlayerModule")):GetControls()
+		if on then c:Enable() else c:Disable() end
+	end)
+end
+
+local function smooth(x)
+	x = math.clamp(x, 0, 1)
+	return x * x * (3 - 2 * x)
+end
+
+local function partCount(inst)
+	local c = cntCache[inst]
+	if c then return c end
+	c = inst:IsA("BasePart") and 1 or 0
+	for _, d in ipairs(inst:GetDescendants()) do
+		if d:IsA("BasePart") then c += 1 end
+	end
+	cntCache[inst] = c
+	return c
+end
+
+local function wordIn(name, words)
+	local n = name:lower()
+	for _, w in ipairs(words) do
+		if n:find(w, 1, true) then return true end
+	end
+	return false
+end
+
+local function nameHit(inst, root, words, cap)
+	local x = inst
+	while x and x ~= root do
+		if (x == inst or partCount(x) <= cap) and wordIn(x.Name, words) then return true end
+		x = x.Parent
+	end
+	return false
+end
+
+local function partsOf(inst)
+	local t = {}
+	if inst:IsA("BasePart") then table.insert(t, inst) end
+	for _, d in ipairs(inst:GetDescendants()) do
+		if d:IsA("BasePart") then table.insert(t, d) end
+	end
+	return t
+end
+
+local function latAxis()
+	return (math.abs(fwdAxis.X) > 0.5) and Vector3.zAxis or Vector3.xAxis
+end
+
+-- ===== ห้องนักบิน =====
+local function calibrate(model)
+	local pivot = model:GetPivot()
+	local bbCF = model:GetBoundingBox()
+	local center = pivot:PointToObjectSpace(bbCF.Position)
+
+	local best, bestScore
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			local n = p.Name:lower()
+			local nHit = n:find("canopy") or n:find("glass") or n:find("cockpit") or n:find("windshield") or n:find("window")
+			local glassy = p.Material == Enum.Material.Glass or (p.Transparency > 0.15 and p.Transparency < 0.98)
+			if nHit or glassy then
+				local score = p.Size.X * p.Size.Y * p.Size.Z * (nHit and 4 or 1)
+				if not bestScore or score > bestScore then best, bestScore = p, score end
+			end
+		end
+	end
+	if not best then return nil end
+
+	local c = pivot:PointToObjectSpace(best.Position)
+	local d = c - center
+	if math.abs(d.X) < 0.5 and math.abs(d.Z) < 0.5 then return nil end
+
+	local f
+	if math.abs(d.X) > math.abs(d.Z) then
+		f = Vector3.new(d.X > 0 and 1 or -1, 0, 0)
+	else
+		f = Vector3.new(0, 0, d.Z > 0 and 1 or -1)
+	end
+	return math.deg(math.atan2(f.X, -f.Z)), c + Vector3.new(0, -1.2, 0), best.Name, f, best
+end
+
+-- ===== ล้อ (แยก 3 ชุด: ล้อหน้า / ล้อหลักซ้าย / ล้อหลักขวา) + ฝาช่องล้อ =====
+local function addGear(p, model)
+	if gearSet[p] or doorSet[p] or ordPartSet[p] then return end
+	gearSet[p] = true
+	table.insert(gearParts, {part = p, rel = model:GetPivot():ToObjectSpace(p.CFrame), t = p.Transparency})
+end
+
+local function removeGear(p)
+	if not gearSet[p] then return end
+	gearSet[p] = nil
+	for i = #gearParts, 1, -1 do
+		if gearParts[i].part == p then
+			p.Transparency = gearParts[i].t
+			table.remove(gearParts, i)
+		end
+	end
+end
+
+local function removeDoor(p)
+	if not doorSet[p] then return end
+	doorSet[p] = nil
+	for i = #doorParts, 1, -1 do
+		if doorParts[i].part == p then table.remove(doorParts, i) end
+	end
+end
+
+local function cornersMinMaxY(rel, size)
+	local lo, hi = math.huge, -math.huge
+	for sx = -1, 1, 2 do
+		for sy = -1, 1, 2 do
+			for sz2 = -1, 1, 2 do
+				local y = (rel * Vector3.new(sx * size.X / 2, sy * size.Y / 2, sz2 * size.Z / 2)).Y
+				lo, hi = math.min(lo, y), math.max(hi, y)
+			end
+		end
+	end
+	return lo, hi
+end
+
+local function rebuildClusters()
+	local L = latAxis()
+	local cLat = centerOff:Dot(L)
+	local thr = jetDiag * 0.04
+	local units = {
+		nose = {parts = {}, delay = 0},
+		left = {parts = {}, delay = 0.06},
+		right = {parts = {}, delay = 0.12},
+	}
+	for _, g in ipairs(gearParts) do
+		local lat = g.rel.Position:Dot(L) - cLat
+		local u = (lat < -thr) and units.left or ((lat > thr) and units.right or units.nose)
+		table.insert(u.parts, g)
+	end
+	local ang = math.rad(GEAR_FOLD)
+	local lowest = math.huge
+	for name, u in pairs(units) do
+		if #u.parts > 0 then
+			local maxY, sum = -math.huge, Vector3.zero
+			for _, g in ipairs(u.parts) do
+				local lo, hi = cornersMinMaxY(g.rel, g.part.Size)
+				lowest = math.min(lowest, lo)
+				maxY = math.max(maxY, hi)
+				sum += g.rel.Position
+			end
+			local C = sum / #u.parts
+			local H = C + Vector3.yAxis * (maxY - C.Y)
+			local axis, sign
+			if name == "nose" then
+				axis = L
+				local function back(s)
+					return (H + CFrame.fromAxisAngle(axis, s * ang):VectorToWorldSpace(C - H) - C):Dot(fwdAxis)
+				end
+				sign = (back(1) < back(-1)) and 1 or -1
+			else
+				axis = fwdAxis
+				local function toward(s)
+					return math.abs((H + CFrame.fromAxisAngle(axis, s * ang):VectorToWorldSpace(C - H)):Dot(L) - cLat)
+				end
+				sign = (toward(1) <= toward(-1)) and 1 or -1
+			end
+			u.hinge, u.axis, u.sign = H, axis, sign
+			for _, g in ipairs(u.parts) do g.cluster = u end
+		end
+	end
+	-- ความสูงตอนล้อแตะพื้น: จากจุดต่ำสุดของล้อจริง
+	local half = jetSizeY * 0.5
+	local fromWheel = (#gearParts > 0 and lowest < math.huge) and (centerOff.Y - lowest) or half
+	gearH = math.max(math.max(fromWheel, half * 0.85) + GEAR_ADJUST, 3)
+end
+
+local function addDoor(p, model, inboard)
+	if ordPartSet[p] then return end
+	removeGear(p)
+	if doorSet[p] then return end
+	local rel = model:GetPivot():ToObjectSpace(p.CFrame)
+	local sz = p.Size
+	local F = fwdAxis
+	local L = latAxis()
+	local cLat = centerOff:Dot(L)
+	local C = rel.Position
+
+	local maxY = -math.huge
+	local bestLat, bestDist = C:Dot(L), inboard and math.huge or -1
+	for sx = -1, 1, 2 do
+		for sy = -1, 1, 2 do
+			for sz2 = -1, 1, 2 do
+				local corner = rel * Vector3.new(sx * sz.X / 2, sy * sz.Y / 2, sz2 * sz.Z / 2)
+				maxY = math.max(maxY, corner.Y)
+				local lat = corner:Dot(L)
+				local dist = math.abs(lat - cLat)
+				if (inboard and dist < bestDist) or ((not inboard) and dist > bestDist) then
+					bestDist, bestLat = dist, lat
+				end
+			end
+		end
+	end
+	local H = C + L * (bestLat - C:Dot(L)) + Vector3.yAxis * (maxY - C.Y)
+	local ang = math.rad(DOOR_ANGLE)
+	local function latAfter(s)
+		local v = CFrame.fromAxisAngle(F, s * ang):VectorToWorldSpace(C - H)
+		return math.abs((H + v):Dot(L) - cLat)
+	end
+	local sign = (latAfter(1) <= latAfter(-1)) and 1 or -1
+	sign *= DOOR_FLIP
+
+	doorSet[p] = true
+	table.insert(doorParts, {part = p, rel = rel, hinge = H, axis = F, sign = sign})
+end
+
+-- ลำดับ: ล้อพับ (s 0 → 0.5, แต่ละชุดเริ่มไม่พร้อมกัน) แล้วหาย → ฝาช่องล้อหุบ (s 0.55 → 0.95)
+local function applyGear(pivotCF)
+	local s = gearAnim
+	if s > 0 then
+		local lift = gearH * 0.2
+		for _, g in ipairs(gearParts) do
+			local p, c = g.part, g.cluster
+			if p.Parent and c then
+				local u = smooth((s - c.delay) / 0.5)
+				local fade = smooth((u - 0.55) / 0.3)
+				p.CFrame = pivotCF * CFrame.new(0, lift * u, 0) * CFrame.new(c.hinge)
+					* CFrame.fromAxisAngle(c.axis, c.sign * math.rad(GEAR_FOLD) * u)
+					* CFrame.new(-c.hinge) * g.rel
+				p.Transparency = g.t + (1 - g.t) * fade
+			end
+		end
+	elseif lastS > 0 then
+		for _, g in ipairs(gearParts) do
+			if g.part.Parent then g.part.Transparency = g.t end
+		end
+	end
+	lastS = s
+
+	local ed = smooth((s - 0.55) / 0.4)
+	if ed > 0 or lastEd > 0 then
+		for _, d in ipairs(doorParts) do
+			local p = d.part
+			if p.Parent then
+				p.CFrame = pivotCF * CFrame.new(d.hinge)
+					* CFrame.fromAxisAngle(d.axis, d.sign * math.rad(DOOR_ANGLE) * ed)
+					* CFrame.new(-d.hinge) * d.rel
+			end
+		end
+	end
+	lastEd = ed
+end
+
+function toggleGear()
+	if not jet then return end
+	if onGround and not gearUp then
+		say(tr("h_gear_lock"))
+		return
+	end
+	gearUp = not gearUp
+	ui()
+end
+
+-- ===== อาวุธบนเครื่อง =====
+local function ordKind(inst)
+	local s = (inst.Name .. " " .. (inst.Parent and inst.Parent.Name or "")):lower()
+	if s:find("aim") or s:find("sidewinder") or s:find("amraam") then return "aam" end
+	if s:find("agm") or s:find("maverick") then return "agm" end
+	return "bomb"
+end
+
+local function addOrd(inst, model, kind)
+	if ordUnitSet[inst] or partCount(inst) == 0 then return end
+	ordUnitSet[inst] = true
+	for _, p in ipairs(partsOf(inst)) do
+		ordPartSet[p] = true
+		removeGear(p)
+		removeDoor(p)
+	end
+	local rel = model:GetPivot():ToObjectSpace(inst:GetPivot())
+	table.insert(ordList, {
+		inst = inst, rel = rel, tmpl = inst:Clone(), kind = kind or ordKind(inst),
+		lat = (rel.Position - centerOff):Dot(latAxis()), fid = inst:GetAttribute("fid"),
+	})
+end
+
+local function kindTotal(kind)
+	local n = 0
+	for _, o in ipairs(ordList) do
+		if o.kind == kind then n += 1 end
+	end
+	return n
+end
+
+local function leftOf(kind)
+	if kindTotal(kind) == 0 then return fallback[kind] or 0 end
+	local n = 0
+	for _, o in ipairs(ordList) do
+		if o.kind == kind and o.inst and o.inst.Parent then n += 1 end
+	end
+	return n
+end
+
+local function rearmOrd(pivotCF)
+	for _, o in ipairs(ordList) do
+		if not (o.inst and o.inst.Parent) then
+			local n = o.tmpl:Clone()
+			n.Parent = jet
+			n:PivotTo(pivotCF * o.rel)
+			o.inst = n
+		end
+	end
+end
+
+local function buildCandidates(model, canopy)
+	local parts = {}
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then table.insert(parts, p) end
+	end
+	local pv = model:GetPivot()
+	local ref = canopy and canopy.Position or pv.Position
+
+	local byNear = table.clone(parts)
+	table.sort(byNear, function(a, b) return (a.Position - ref).Magnitude < (b.Position - ref).Magnitude end)
+	candNear = {}
+	for _, p in ipairs(byNear) do
+		if p ~= canopy then
+			table.insert(candNear, p)
+			if #candNear >= 40 then break end
+		end
+	end
+
+	local byLow = table.clone(parts)
+	table.sort(byLow, function(a, b)
+		return pv:PointToObjectSpace(a.Position).Y < pv:PointToObjectSpace(b.Position).Y
+	end)
+	candLow = {}
+	for i = 1, math.min(40, #byLow) do candLow[i] = byLow[i] end
+	cycIdx = {near = 0, low = 0}
+end
+
+-- ซ่อนกระจกครอบและชิ้นเล็กที่ติดกล้องในมุมบุคคลที่ 1 (กันภาพแตก)
+local function resetNearHide()
+	for p in pairs(hiddenNear) do
+		if p.Parent then p.LocalTransparencyModifier = 0 end
+		hiddenNear[p] = nil
+	end
+end
+
+local function updateNearHide(eye, on)
+	if not on then
+		if next(hiddenNear) then resetNearHide() end
+		return
+	end
+	if os.clock() < nextHide then return end
+	nextHide = os.clock() + 0.15
+	for _, p in ipairs(jetParts) do
+		if p.Parent and not gearSet[p] then
+			local glass = p.Material == Enum.Material.Glass or (p.Transparency > 0.15 and p.Transparency < 0.98)
+				or wordIn(p.Name, {"canopy", "glass", "windshield"})
+			local near = p.Size.Magnitude < jetDiag * 0.2 and (p.Position - eye).Magnitude < 6
+			if glass or near then
+				p.LocalTransparencyModifier = 1
+				hiddenNear[p] = true
+			elseif hiddenNear[p] then
+				p.LocalTransparencyModifier = 0
+				hiddenNear[p] = nil
+			end
+		end
+	end
+end
+
+-- ===== โหลดโมเดล =====
+local function loadJet()
+	local ok, result = pcall(function() return game:GetObjects("rbxassetid://" .. ASSET_ID) end)
+	if not ok or not result or #result == 0 then
+		warn("โหลดโมเดลไม่ได้ / model load failed:", result)
+		return nil
+	end
+	local model = result[1]
+	if not model:IsA("Model") then
+		local m = Instance.new("Model")
+		model.Parent = m
+		model = m
+	end
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.Anchored = true
+			p.CanCollide = false
+		end
+	end
+	model.Name = "F16_Local"
+	model.Parent = workspace
+	pcall(function() model.WorldPivot = model:GetPivot() end)
+
+	local fidMap = {}
+	for n, d in ipairs(model:GetDescendants()) do
+		d:SetAttribute("fid", n)
+		fidMap[n] = d
+	end
+
+	table.clear(cntCache)
+	gearParts, gearSet, doorParts, doorSet = {}, {}, {}, {}
+	ordList, ordUnitSet, ordPartSet = {}, {}, {}
+	gearUp, gearAnim, lastS, lastEd = false, 0, 0, 0
+	selected = nil
+	for _, h in ipairs(gearHL) do h:Destroy() end
+	gearHL = {}
+	hiddenNear = {}
+	gunAmmo, fallback = GUN_MAX, table.clone(FALLBACK_AMMO)
+
+	local total = #partsOf(model)
+	local cap = math.max(8, total * 0.25)
+	local capOrd = math.max(6, total * 0.12)
+	local _, bb0 = model:GetBoundingBox()
+	local diag = bb0.Magnitude
+	jetDiag = diag
+
+	-- ลบบันได / สีม่วง / ลูกกลมดำ / ชิ้นที่เลือกไว้
+	local removed, purple, dark = 0, 0, 0
+	local purplePos = {}
+	for _, id in ipairs(REMOVE_IDS) do
+		local inst = fidMap[id]
+		if inst and inst.Parent then inst:Destroy() removed += 1 end
+	end
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") and p.Parent then
+			if p.Size.Magnitude < diag * 0.45 and nameHit(p, model, LADDER_WORDS, cap) then
+				p:Destroy()
+				removed += 1
+			elseif REMOVE_PURPLE and p.Size.Magnitude < diag * 0.12 then
+				local h, s = p.Color:ToHSV()
+				if s > 0.3 and h > 0.72 and h < 0.86 then
+					table.insert(purplePos, p.Position)
+					p:Destroy()
+					purple += 1
+				end
+			end
+		end
+	end
+	if REMOVE_DARK_BALL then
+		for _, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") and p.Parent and p.Size.Magnitude < diag * 0.1
+				and not wordIn(p.Name, GEAR_WORDS) and not wordIn(p.Name, ORD_WORDS) and not wordIn(p.Name, DOOR_WORDS) then
+				local _, _, v = p.Color:ToHSV()
+				local s3 = p.Size
+				local mx, mn = math.max(s3.X, s3.Y, s3.Z), math.min(s3.X, s3.Y, s3.Z)
+				local ball = (p:IsA("Part") and p.Shape == Enum.PartType.Ball) or (p:IsA("MeshPart") and mn > mx * 0.85)
+				local nearPurple = false
+				for _, pp in ipairs(purplePos) do
+					if (pp - p.Position).Magnitude < diag * 0.1 then nearPurple = true break end
+				end
+				if v < 0.22 and (ball or nearPurple) then
+					p:Destroy()
+					dark += 1
+				end
+			end
+		end
+	end
+	table.clear(cntCache)
+
+	-- ปรับการเรนเดอร์ให้ภาพไม่แตก/ไม่ขาด
+	jetParts = partsOf(model)
+	for _, p in ipairs(jetParts) do
+		p.CastShadow = false
+		if PRECISE_MESH and p:IsA("MeshPart") then
+			pcall(function() p.RenderFidelity = Enum.RenderFidelity.Precise end)
+		end
+	end
+
+	-- ตัวเครื่อง + ห้องนักบิน
+	local pv = model:GetPivot()
+	local bbCF, bbSize = model:GetBoundingBox()
+	centerOff = pv:PointToObjectSpace(bbCF.Position)
+	jetSizeY = bbSize.Y
+	gearH = math.max(bbSize.Y * 0.5 + GEAR_ADJUST, 3)
+	jetDiag = bbSize.Magnitude
+
+	local yaw, seat, partName, f, canopy = calibrate(model)
+	if yaw then
+		yawOff, seatBase = yaw, seat
+		fwdAxis = f
+		print(("[F16] canopy '%s' | yaw=%d"):format(partName, yaw))
+	else
+		yawOff, seatBase = FALLBACK_YAW, FALLBACK_SEAT
+		local r = math.rad(FALLBACK_YAW)
+		fwdAxis = Vector3.new(math.round(math.sin(r)), 0, -math.round(math.cos(r)))
+		warn("[F16] canopy not found, using fallback (use SEAT/TILT in MENU)")
+	end
+
+	-- อาวุธบนเครื่อง
+	local manualOrd = (#BOMB_IDS + #AGM_IDS + #AAM_IDS) > 0
+	for _, pair in ipairs({{BOMB_IDS, "bomb"}, {AGM_IDS, "agm"}, {AAM_IDS, "aam"}}) do
+		for _, id in ipairs(pair[1]) do
+			local inst = fidMap[id]
+			if inst and inst.Parent then addOrd(inst, model, pair[2]) end
+		end
+	end
+	if not manualOrd then
+		local units = {}
+		for _, d in ipairs(model:GetDescendants()) do
+			if (d:IsA("BasePart") or d:IsA("Model") or d:IsA("Folder")) and wordIn(d.Name, ORD_WORDS) and partCount(d) > 0 then
+				if partCount(d) <= capOrd then
+					units[d] = true
+				else
+					for _, c in ipairs(d:GetChildren()) do
+						if partCount(c) > 0 and partCount(c) <= capOrd then units[c] = true end
+					end
+				end
+			end
+		end
+		for u in pairs(units) do
+			local x = u.Parent
+			while x and x ~= model do
+				if units[x] then units[u] = nil break end
+				x = x.Parent
+			end
+		end
+		for u in pairs(units) do addOrd(u, model) end
+	end
+
+	-- ฝาช่องล้อ แล้วล้อ
+	local lowY = centerOff.Y
+	local function isLow(p) return pv:PointToObjectSpace(p.Position).Y < lowY end
+	for _, id in ipairs(DOOR_IDS) do
+		local inst = fidMap[id]
+		if inst and inst:IsA("BasePart") and inst.Parent then addDoor(inst, model, false) end
+	end
+	if #DOOR_IDS == 0 then
+		for _, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") and p.Size.Magnitude < diag * 0.45 and isLow(p)
+				and nameHit(p, model, DOOR_WORDS, cap) and not nameHit(p, model, {"canopy", "cockpit", "glass"}, cap) then
+				addDoor(p, model, false)
+			end
+		end
+	end
+	for _, id in ipairs(GEAR_IDS) do
+		local inst = fidMap[id]
+		if inst and inst:IsA("BasePart") and inst.Parent then addGear(inst, model) end
+	end
+	if #GEAR_IDS == 0 then
+		local autoGear = {}
+		for _, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") and p.Size.Magnitude < diag * 0.45 and isLow(p) and nameHit(p, model, GEAR_WORDS, cap) then
+				table.insert(autoGear, p)
+			end
+		end
+		if #autoGear > total * 0.3 then
+			warn("[F16] too many gear matches by name, auto-gear cancelled (use MENU > LOW > +GEAR)")
+		else
+			for _, p in ipairs(autoGear) do addGear(p, model) end
+		end
+	end
+	rebuildClusters()
+
+	print(("[F16] removed %d | purple %d | dark %d | gear %d | doors %d | weapons %d | gearH %.2f"):format(
+		removed, purple, dark, #gearParts, #doorParts, #ordList, gearH))
+
+	buildCandidates(model, canopy)
+	ui()
+	return model
+end
+
+-- ===== บิน / ลงจากเครื่อง =====
+local function beginFlight(char, hrp, hum)
+	rp.FilterDescendantsInstances = {jet, char}
+	bombRP.FilterDescendantsInstances = {jet, char, fx}
+	hrp.Anchored = true
+	if hum then hum.AutoRotate = false end
+	setControls(false)
+	camMode, camYaw, camPitch = "FREE", 0, 0
+	camLook, camUpV = ctrl.LookVector, Vector3.yAxis
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.FieldOfView = camFov
+	horizonBox.Visible, cross.Visible = true, true
+	if not engSnd.IsPlaying then engSnd:Play() end
+	flying = true
+	ui()
+end
+
+local function leaveChar()
+	engSnd:Stop()
+	firing = false
+	for k in pairs(hold) do hold[k] = false end
+	resetNearHide()
+	cam.CameraType = Enum.CameraType.Custom
+	cam.FieldOfView = 70
+	horizonBox.Visible, cross.Visible = false, false
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if char then
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") then p.LocalTransparencyModifier = 0 end
+		end
+	end
+	if hum then hum.Sit = false hum.AutoRotate = true end
+	setControls(true)
+	return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function setSelected(inst)
+	selected = inst
+	if selHL then selHL:Destroy() selHL = nil end
+	if inst then
+		selHL = mk("Highlight", {Adornee = inst, FillColor = RED, FillTransparency = 0.3, OutlineColor = TXT}, fx)
+		say(tr("sel", inst.Name, tostring(inst:GetAttribute("fid"))), 5)
+		hudText.Text = hint
+	end
+end
+
+function stopFlying()
+	flying = false
+	hudText.Text = tr("standby")
+	local hrp = leaveChar()
+	if hrp then
+		hrp.Anchored = false
+		hrp.CFrame = CFrame.new(jetPos + Vector3.new(0, 10, 0))
+	end
+	setSelected(nil)
+	for _, h in ipairs(gearHL) do h:Destroy() end
+	gearHL = {}
+	if jet then jet:Destroy() jet = nil end
+	onGround = false
+	gearUp = false
+	ui()
+end
+
+function exitJet()
+	if not flying then return end
+	if not onGround or speed > 3 then
+		say(tr("h_stop"))
+		return
+	end
+	flying = false
+	local hrp = leaveChar()
+	if hrp then
+		hrp.Anchored = false
+		local pos = jetPos + ctrl:VectorToWorldSpace(Vector3.new(14, 2, 0))
+		hrp.CFrame = CFrame.lookAt(pos, Vector3.new(jetPos.X, pos.Y, jetPos.Z))
+	end
+	hudText.Text = tr("parked_msg")
+end
+
+function startFlying()
+	local char = player.Character or player.CharacterAdded:Wait()
+	local hrp = char:WaitForChild("HumanoidRootPart")
+	local hum = char:FindFirstChildOfClass("Humanoid")
+
+	if jet and jet.Parent and not flying and (hrp.Position - jetPos).Magnitude < 80 then
+		beginFlight(char, hrp, hum)
+		return
+	end
+
+	if jet then stopFlying() end
+	jet = loadJet()
+	if not jet then return end
+	rp.FilterDescendantsInstances = {jet, char}
+
+	local look = hrp.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+	ctrl = CFrame.lookAt(Vector3.zero, flat.Unit)
+	local sx = hrp.Position + flat.Unit * 45
+	jetPos = sx + Vector3.new(0, 25, 0)
+	speed, throttle = 120, 0.45
+	setEngine(true)
+	onGround = false
+
+	if not SPAWN_IN_AIR then
+		local h = workspace:Raycast(Vector3.new(sx.X, hrp.Position.Y + 10, sx.Z), Vector3.new(0, -400, 0), rp)
+		if h then
+			jetPos = Vector3.new(sx.X, h.Position.Y + gearH, sx.Z)
+			speed, throttle = 0, 0
+			setEngine(false)
+			onGround = true
+		end
+	end
+	showThrottle()
+	seatNudge, seatTilt = Vector3.zero, 0
+	beginFlight(char, hrp, hum)
+end
+
+function toggleCam()
+	camMode = (camMode == "FREE") and "FIRST" or "FREE"
+	camYaw, camPitch = 0, 0
+	camLook = ctrl.LookVector
+	ui()
+end
+
+-- ===== เครื่องมือเลือกชิ้นส่วน =====
+function togglePick()
+	pickMode = not pickMode
+	if not pickMode then setSelected(nil) end
+	ui()
+end
+
+function selUp()
+	if selected and selected.Parent and selected.Parent ~= jet and selected.Parent ~= workspace then
+		setSelected(selected.Parent)
+	end
+end
+
+local function cycle(list, key)
+	if #list == 0 then return end
+	for _ = 1, #list do
+		cycIdx[key] = cycIdx[key] % #list + 1
+		local p = list[cycIdx[key]]
+		if p and p.Parent then
+			setSelected(p)
+			return
+		end
+	end
+end
+function cycleNear() cycle(candNear, "near") end
+function cycleLow() cycle(candLow, "low") end
+
+local function idsOfParts(list)
+	local t = {}
+	for _, e in ipairs(list) do
+		local id = e.part:GetAttribute("fid")
+		if id then table.insert(t, id) end
+	end
+	return t
+end
+
+local function report()
+	local function fmt(t) return "{" .. table.concat(t, ",") .. "}" end
+	local bi, ai, mi = {}, {}, {}
+	for _, o in ipairs(ordList) do
+		if o.fid then table.insert(o.kind == "bomb" and bi or o.kind == "agm" and ai or mi, o.fid) end
+	end
+	local s = ("local REMOVE_IDS = %s\nlocal GEAR_IDS = %s\nlocal DOOR_IDS = %s\nlocal BOMB_IDS = %s\nlocal AGM_IDS = %s\nlocal AAM_IDS = %s"):format(
+		fmt(sessRemove), fmt(idsOfParts(gearParts)), fmt(idsOfParts(doorParts)), fmt(bi), fmt(ai), fmt(mi))
+	print("[F16] paste these over the config at the top to keep your picks:\n" .. s)
+	pcall(function() setclipboard(s) end)
+end
+
+local function clearGearHL()
+	for _, h in ipairs(gearHL) do h:Destroy() end
+	gearHL = {}
+end
+
+function showGear()
+	if #gearHL > 0 then clearGearHL() return end
+	if not jet then return end
+	for _, g in ipairs(gearParts) do
+		if g.part.Parent then
+			table.insert(gearHL, mk("Highlight", {Adornee = g.part, FillColor = Color3.fromRGB(60, 220, 90), FillTransparency = 0.35, OutlineTransparency = 1}, fx))
+		end
+	end
+	for _, d in ipairs(doorParts) do
+		if d.part.Parent then
+			table.insert(gearHL, mk("Highlight", {Adornee = d.part, FillColor = Color3.fromRGB(70, 140, 255), FillTransparency = 0.35, OutlineTransparency = 1}, fx))
+		end
+	end
+	say(tr("show_info", #gearParts, #doorParts), 4)
+	hudText.Text = hint
+end
+
+local function refreshGearHL()
+	if #gearHL > 0 then
+		clearGearHL()
+		showGear()
+	end
+end
+
+local function gearLocked()
+	if gearAnim > 0.01 then
+		say(tr("h_lower"))
+		return true
+	end
+	return false
+end
+
+function markGear()
+	if not selected or not jet or gearLocked() then return end
+	local parts = partsOf(selected)
+	for _, p in ipairs(parts) do removeDoor(p) addGear(p, jet) end
+	rebuildClusters()
+	refreshGearHL()
+	say(tr("gear_added", #parts))
+	hudText.Text = hint
+	report()
+	setSelected(nil)
+end
+
+function markDoor(inboard)
+	if not selected or not jet or gearLocked() then return end
+	local parts = partsOf(selected)
+	for _, p in ipairs(parts) do addDoor(p, jet, inboard) end
+	rebuildClusters()
+	refreshGearHL()
+	say(tr("door_added", #parts))
+	hudText.Text = hint
+	report()
+	setSelected(nil)
+end
+
+function unmarkGear()
+	if not selected or not jet or gearLocked() then return end
+	for _, p in ipairs(partsOf(selected)) do
+		removeGear(p)
+		removeDoor(p)
+	end
+	rebuildClusters()
+	refreshGearHL()
+	say(tr("gear_removed"))
+	hudText.Text = hint
+	report()
+	setSelected(nil)
+end
+
+function clearGear()
+	if not jet or gearLocked() then return end
+	for i = #gearParts, 1, -1 do removeGear(gearParts[i].part) end
+	for i = #doorParts, 1, -1 do removeDoor(doorParts[i].part) end
+	rebuildClusters()
+	refreshGearHL()
+	say(tr("gear_cleared"), 3)
+	hudText.Text = hint
+	report()
+end
+
+function markOrd(kind)
+	if not selected or not jet or selected == jet then return end
+	addOrd(selected, jet, kind)
+	say(tr("ord_added", kind:upper(), #ordList))
+	hudText.Text = hint
+	report()
+	setSelected(nil)
+end
+
+function markRemove()
+	if not selected or not jet or selected == jet then return end
+	local inst = selected
+	local id = inst:GetAttribute("fid")
+	if id and not table.find(sessRemove, id) then table.insert(sessRemove, id) end
+	setSelected(nil)
+	inst:Destroy()
+	say(tr("deleted"))
+	hudText.Text = hint
+	report()
+end
+
+local pickStart
+UIS.InputBegan:Connect(function(i, gp)
+	if pickMode and not gp and isPress(i) then
+		pickStart = Vector2.new(i.Position.X, i.Position.Y)
+	end
+end)
+UIS.InputEnded:Connect(function(i, gp)
+	if not pickMode or gp or not pickStart or not isPress(i) then return end
+	local endPos = Vector2.new(i.Position.X, i.Position.Y)
+	if (endPos - pickStart).Magnitude < 14 and jet then
+		local ray = cam:ScreenPointToRay(endPos.X, endPos.Y)
+		local pr = RaycastParams.new()
+		pr.FilterType = Enum.RaycastFilterType.Include
+		pr.FilterDescendantsInstances = {jet}
+		local res = workspace:Raycast(ray.Origin, ray.Direction * 2000, pr)
+		if res then setSelected(res.Instance) end
+	end
+	pickStart = nil
+end)
+
+-- ===== เอฟเฟกต์ระเบิด =====
+local function explode(pos, radius, ballSize, shakeMul)
+	local ex = Instance.new("Explosion")
+	ex.Position = pos
+	ex.BlastRadius = radius
+	ex.BlastPressure = 0
+	ex.DestroyJointRadiusPercent = 0
+	ex.ExplosionType = Enum.ExplosionType.NoCraters
+	ex.Parent = workspace
+
+	local ball = mk("Part", {
+		Shape = Enum.PartType.Ball, Size = Vector3.new(4, 4, 4), Position = pos, Anchored = true,
+		CanCollide = false, CanQuery = false, CanTouch = false, Material = Enum.Material.Neon,
+		Color = Color3.fromRGB(255, 140, 30),
+	}, fx)
+	mk("PointLight", {Range = 60, Brightness = 6, Color = Color3.fromRGB(255, 160, 60)}, ball)
+	local snd = mk("Sound", {SoundId = "rbxasset://sounds/impact_explosion_03.mp3", Volume = 2, RollOffMaxDistance = 500}, ball)
+	snd:Play()
+	TweenService:Create(ball, TweenInfo.new(0.7), {Size = Vector3.new(ballSize, ballSize, ballSize), Transparency = 1}):Play()
+	Debris:AddItem(ball, 3)
+
+	local dist = (pos - cam.CFrame.Position).Magnitude
+	shake = math.max(shake, math.clamp(1 - dist / 250, 0, 1) * 1.5 * shakeMul)
+end
+
+local function fragRing(pos, dir)
+	local right = dir:Cross(Vector3.yAxis)
+	if right.Magnitude < 0.1 then right = Vector3.xAxis end
+	right = right.Unit
+	local up = right:Cross(dir).Unit
+	for i = 1, 24 do
+		local a = i / 24 * math.pi * 2
+		local d = right * math.cos(a) + up * math.sin(a)
+		local s = mk("Part", {
+			Size = Vector3.new(0.3, 0.3, 1.2), Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
+			Material = Enum.Material.Neon, Color = Color3.fromRGB(255, 220, 120), CFrame = CFrame.lookAt(pos, pos + d),
+		}, fx)
+		TweenService:Create(s, TweenInfo.new(0.5), {CFrame = CFrame.lookAt(pos + d * 35, pos + d * 36), Transparency = 1}):Play()
+		Debris:AddItem(s, 0.7)
+	end
+end
+
+local function orient(pos, dir)
+	local up = math.abs(dir.Unit.Y) > 0.99 and Vector3.xAxis or Vector3.yAxis
+	return CFrame.lookAt(pos, pos + dir, up) * CFrame.Angles(0, math.rad(90), 0)
+end
+
+local function modelOrient(b)
+	local v = b.vel
+	if v.Magnitude < 1 then return b.rot0 end
+	local d = v.Unit
+	local axis = b.d0:Cross(d)
+	local ang = math.acos(math.clamp(b.d0:Dot(d), -1, 1))
+	local delta = axis.Magnitude > 1e-4 and CFrame.fromAxisAngle(axis.Unit, ang) or CFrame.new()
+	return delta * b.rot0
+end
+
+local function addTrail(obj)
+	local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart", true)
+	if not part then return end
+	mk("ParticleEmitter", {
+		Texture = "rbxasset://textures/particles/smoke_main.dds", Rate = 60, Lifetime = NumberRange.new(1, 1.6),
+		Speed = NumberRange.new(0, 1), Color = ColorSequence.new(Color3.fromRGB(210, 210, 210)),
+		Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 5)}),
+		Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1)}),
+	}, part)
+end
+
+-- ===== ปืนกล M61A1 =====
+local function tracer(a, b)
+	local diff = b - a
+	if diff.Magnitude < 1 then return end
+	local len = math.min(diff.Magnitude, 300)
+	local dir = diff.Unit
+	local mid = a + dir * (len / 2)
+	local t = mk("Part", {
+		Size = Vector3.new(0.2, 0.2, len), CFrame = CFrame.lookAt(mid, mid + dir), Anchored = true,
+		CanCollide = false, CanQuery = false, CanTouch = false, Material = Enum.Material.Neon,
+		Color = Color3.fromRGB(255, 230, 120),
+	}, fx)
+	Debris:AddItem(t, 0.06)
+end
+
+local function gunHit(pos)
+	local api = ammoType == "API"
+	local s = mk("Part", {
+		Shape = Enum.PartType.Ball, Size = Vector3.new(1.5, 1.5, 1.5), Position = pos, Anchored = true,
+		CanCollide = false, CanQuery = false, CanTouch = false, Material = Enum.Material.Neon,
+		Color = api and Color3.fromRGB(255, 110, 30) or Color3.fromRGB(255, 240, 180),
+	}, fx)
+	TweenService:Create(s, TweenInfo.new(0.25), {Size = Vector3.new(5, 5, 5), Transparency = 1}):Play()
+	Debris:AddItem(s, 0.4)
+	if not api and math.random() < 0.12 then
+		local ex = Instance.new("Explosion")
+		ex.Position, ex.BlastRadius, ex.BlastPressure, ex.DestroyJointRadiusPercent = pos, 4, 0, 0
+		ex.ExplosionType = Enum.ExplosionType.NoCraters
+		ex.Parent = workspace
+	elseif api and math.random() < 0.1 then
+		local fp = mk("Part", {
+			Size = Vector3.one, Transparency = 1, Anchored = true, CanCollide = false, CanQuery = false,
+			CanTouch = false, Position = pos,
+		}, fx)
+		mk("Fire", {Size = 4, Heat = 6}, fp)
+		Debris:AddItem(fp, 1.5)
+	end
+end
+
+local function fireGun(n)
+	local muzzle = jetPos + ctrl:VectorToWorldSpace(Vector3.new(-1.6, 0.2, -7))
+	tracerCount += n
+	for _ = 1, math.min(n, 2) do
+		local spread = 0.012
+		local dir = (ctrl.LookVector + ctrl.RightVector * (math.random() - 0.5) * spread + ctrl.UpVector * (math.random() - 0.5) * spread).Unit
+		local res = workspace:Raycast(muzzle, dir * 900, bombRP)
+		local endPos = res and res.Position or (muzzle + dir * 900)
+		if tracerCount >= 5 then
+			tracerCount = 0
+			tracer(muzzle, endPos)
+		end
+		if res then gunHit(res.Position) end
+	end
+end
+
+-- ===== ระเบิด / AGM / AAM =====
+local projectiles = {}
+
+local function boresightPoint()
+	local res = workspace:Raycast(jetPos, ctrl.LookVector * 5000, bombRP)
+	return res and res.Position or nil
+end
+
+local function findTarget(sub)
+	local range = sub == "AIM-120" and 4000 or 1500
+	local cone = math.rad(sub == "AIM-120" and 45 or 25)
+	local best, bestAng
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl ~= player and pl.Character then
+			local r = pl.Character:FindFirstChild("HumanoidRootPart")
+			if r then
+				local d = r.Position - jetPos
+				local dist = d.Magnitude
+				if dist < range and dist > 20 then
+					local ang = math.acos(math.clamp(ctrl.LookVector:Dot(d.Unit), -1, 1))
+					if ang < cone and (not bestAng or ang < bestAng) then best, bestAng = r, ang end
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function takeOrd(kind)
+	for pass = 1, 2 do
+		for _, o in ipairs(ordList) do
+			if o.kind == kind and o.inst and o.inst.Parent then
+				local side = o.lat >= 0 and 1 or -1
+				if side == bombSide or pass == 2 then
+					bombSide = -bombSide
+					local inst = o.inst
+					o.inst = nil
+					local cf = inst:GetPivot()
+					inst.Parent = fx
+					return {obj = inst, isModel = true, pos = cf.Position, rot0 = cf.Rotation}
+				end
+			end
+		end
+	end
+	if kindTotal(kind) == 0 and (fallback[kind] or 0) > 0 then
+		fallback[kind] -= 1
+		bombSide = -bombSide
+		local len = kind == "bomb" and 4 or 6
+		local th = kind == "bomb" and 1.3 or 0.9
+		local part = mk("Part", {
+			Shape = Enum.PartType.Cylinder, Size = Vector3.new(len, th, th), Anchored = true,
+			CanCollide = false, CanQuery = false, CanTouch = false, Material = Enum.Material.Metal,
+			Color = kind == "bomb" and Color3.fromRGB(70, 78, 50) or Color3.fromRGB(200, 200, 205),
+		}, fx)
+		return {obj = part, isModel = false, pos = jetPos + ctrl:VectorToWorldSpace(Vector3.new(bombSide * 4, -2.5, 0))}
+	end
+	return nil
+end
+
+local function launch(kind)
+	if not flying or os.clock() - lastBomb < 0.4 then return end
+	local spec = takeOrd(kind)
+	if not spec then
+		say(tr("h_noammo", tr(WKEY[weapon])), 1.5)
+		return
+	end
+	lastBomb = os.clock()
+	local look = ctrl.LookVector
+	local p = {
+		obj = spec.obj, isModel = spec.isModel, pos = spec.pos, rot0 = spec.rot0 or CFrame.new(),
+		d0 = look, t = 0, kind = kind,
+	}
+	if kind == "bomb" then
+		p.sub = BOMB_TYPES[bombSub]
+		p.vel = look * speed
+		if p.sub == "JDAM" or p.sub == "Paveway" then p.tgtPos = boresightPoint() end
+	elseif kind == "agm" then
+		p.spd = math.max(speed, 150)
+		p.vel = look * p.spd
+		p.tgtPos = boresightPoint()
+		addTrail(spec.obj)
+	else
+		p.sub = AAM_TYPES[aamSub]
+		p.maxSpd = p.sub == "AIM-120" and 800 or 650
+		p.turn = p.sub == "AIM-120" and 2.2 or 3.0
+		p.spd = math.max(speed, 200)
+		p.vel = look * p.spd
+		p.tgt = findTarget(p.sub)
+		addTrail(spec.obj)
+	end
+	table.insert(projectiles, p)
+end
+
+local function detonate(b, pos)
+	if b.kind == "bomb" then
+		if b.sub == "Mk84" then
+			explode(pos, 40, 90, 3)
+		else
+			explode(pos, b.sub == "Paveway" and 25 or 20, 45, 1.5)
+		end
+	elseif b.kind == "agm" then
+		explode(pos, 16, 32, 2)
+	else
+		explode(pos, 10, 24, 1)
+		fragRing(pos, b.vel.Magnitude > 1 and b.vel.Unit or Vector3.zAxis)
+	end
+end
+
+local function stepProjectile(b, i, dt)
+	b.t += dt
+	local boom = false
+	local g = Vector3.new(0, -workspace.Gravity, 0)
+	if b.kind == "bomb" then
+		local tp = b.tgtPos
+		if b.sub == "Paveway" and flying then
+			tp = boresightPoint() or tp
+			b.tgtPos = tp
+		end
+		b.vel += g * dt
+		if tp then
+			local d = tp - b.pos
+			if d.Magnitude > 2 then b.vel = b.vel:Lerp(d.Unit * b.vel.Magnitude, math.min(1, dt * 1.2)) end
+		end
+	elseif b.kind == "agm" then
+		if b.t < 8 then
+			b.spd = math.min(b.spd + 300 * dt, 450)
+			local dir = b.vel.Unit
+			if b.tgtPos then
+				local d = b.tgtPos - b.pos
+				if d.Magnitude > 2 then dir = dir:Lerp(d.Unit, math.min(1, dt * 2.5)).Unit end
+			end
+			b.vel = dir * b.spd
+		else
+			b.vel += g * dt
+		end
+	else
+		b.spd = math.min(b.spd + 400 * dt, b.maxSpd)
+		local dir = b.vel.Unit
+		local tgt = b.tgt
+		if tgt and tgt.Parent then
+			local d = tgt.Position - b.pos
+			if d.Magnitude < 14 then
+				boom = true
+			else
+				dir = dir:Lerp(d.Unit, math.min(1, b.turn * dt)).Unit
+			end
+		end
+		b.vel = dir * b.spd
+		if b.t > 10 then boom = true end
+	end
+
+	local newPos = b.pos + b.vel * dt
+	local res = workspace:Raycast(b.pos, newPos - b.pos, bombRP)
+	if boom or res then
+		detonate(b, res and res.Position or b.pos)
+		b.obj:Destroy()
+		table.remove(projectiles, i)
+	elseif b.t > 15 or newPos.Y < -500 then
+		b.obj:Destroy()
+		table.remove(projectiles, i)
+	else
+		b.pos = newPos
+		if b.isModel then
+			b.obj:PivotTo(CFrame.new(newPos) * modelOrient(b))
+		else
+			b.obj.CFrame = orient(newPos, b.vel)
+		end
+	end
+end
+
+RunService.Heartbeat:Connect(function(dt)
+	for i = #projectiles, 1, -1 do
+		local b = projectiles[i]
+		if not b.obj.Parent then
+			table.remove(projectiles, i)
+		else
+			stepProjectile(b, i, dt)
+		end
+	end
+end)
+
+-- ===== เลือกอาวุธ / ชนิด =====
+function cycleWeapon()
+	weapon = weapon % 4 + 1
+	firing = false
+	ui()
+end
+
+function cycleSub()
+	if weapon == 1 then
+		ammoType = ammoType == "HEI" and "API" or "HEI"
+	elseif weapon == 2 then
+		bombSub = bombSub % #BOMB_TYPES + 1
+	elseif weapon == 4 then
+		aamSub = aamSub % #AAM_TYPES + 1
+	end
+	ui()
+end
+
+function onFireDown()
+	if not flying then return end
+	if weapon == 1 then firing = true else launch(KIND[weapon]) end
+end
+
+local function wpnText()
+	if weapon == 1 then return ("%s %s %03d"):format(tr("w_gun"), ammoType, gunAmmo) end
+	return ("%s %02d"):format(tr(WKEY[weapon]), leftOf(KIND[weapon]))
+end
+
+-- ===== คีย์บอร์ด + หมุนกล้อง =====
+UIS.InputBegan:Connect(function(i, gp)
+	if gp then return end
+	keys[i.KeyCode] = true
+	if i.KeyCode == Enum.KeyCode.C then
+		toggleCam()
+	elseif i.KeyCode == Enum.KeyCode.F and engineOn then
+		setAB(not ab)
+	elseif i.KeyCode == Enum.KeyCode.B then
+		onFireDown()
+	elseif i.KeyCode == Enum.KeyCode.V then
+		cycleWeapon()
+	elseif i.KeyCode == Enum.KeyCode.N then
+		cycleSub()
+	elseif i.KeyCode == Enum.KeyCode.X and flying then
+		setEngine(not engineOn)
+	elseif i.KeyCode == Enum.KeyCode.G then
+		brake = not brake
+		ui()
+	elseif i.KeyCode == Enum.KeyCode.L then
+		toggleGear()
+	end
+end)
+UIS.InputEnded:Connect(function(i)
+	keys[i.KeyCode] = false
+	if i.KeyCode == Enum.KeyCode.B then firing = false end
+end)
+
+UIS.InputChanged:Connect(function(i, gp)
+	if gp or not flying then return end
+	if i.UserInputType == Enum.UserInputType.MouseWheel then
+		camDist = math.clamp(camDist - i.Position.Z * 5, 5, 250)
+		return
+	end
+	local rightDrag = i.UserInputType == Enum.UserInputType.MouseMovement and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+	if rightDrag or i.UserInputType == Enum.UserInputType.Touch then
+		camYaw = camYaw - i.Delta.X * 0.4
+		camPitch = math.clamp(camPitch - i.Delta.Y * 0.4, -80, 80)
+	end
+end)
+
+-- ===== ลูปหลัก =====
+RunService.RenderStepped:Connect(function(dt)
+	if not flying then return end
+	dt = math.min(dt, 0.05)
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not jet or not jet.Parent or not hrp then stopFlying() return end
+
+	local prevY, wasGround = jetPos.Y, onGround
+
+	local function key(...)
+		for _, k in ipairs({...}) do
+			if keys[k] then return 1 end
+		end
+		return 0
+	end
+	local pT = math.clamp(key(Enum.KeyCode.W, Enum.KeyCode.Up) - key(Enum.KeyCode.S, Enum.KeyCode.Down)
+		+ (hold.up and 1 or 0) - (hold.down and 1 or 0), -1, 1)
+	local rT = math.clamp(key(Enum.KeyCode.E) - key(Enum.KeyCode.Q)
+		+ (hold.rr and 1 or 0) - (hold.rl and 1 or 0), -1, 1)
+	local yT = math.clamp(key(Enum.KeyCode.D, Enum.KeyCode.Right) - key(Enum.KeyCode.A, Enum.KeyCode.Left)
+		+ (hold.yr and 1 or 0) - (hold.yl and 1 or 0), -1, 1)
+	local kbT = key(Enum.KeyCode.LeftShift) - key(Enum.KeyCode.LeftControl)
+	if kbT ~= 0 then
+		throttle = math.clamp(throttle + kbT * 0.5 * dt, 0, 1)
+		showThrottle()
+	end
+	local a = 1 - math.exp(-6 * dt)
+	pitchIn += (pT - pitchIn) * a
+	rollIn += (rT - rollIn) * a
+	yawIn += (yT - yawIn) * a
+
+	-- เครื่องยนต์ / ความเร็ว / เบรก
+	local target = engineOn and (throttle * MAX_SPEED * (ab and AB_MULT or 1)) or 0
+	local k = 0.9
+	if target > speed and onGround then
+		k = 0.4
+	elseif target < speed then
+		if onGround then k = brake and 4 or 0.6 else k = engineOn and 0.5 or 0.12 end
+	end
+	speed += (target - speed) * math.min(1, dt * k)
+	if onGround and brake then speed = math.max(0, speed - 70 * dt) end
+	if speed < 0.5 and target < 1 then speed = 0 end
+
+	-- ล้อ: ลงพื้นตอนล้อเก็บ ปล่อยล้อลงเอง
+	if onGround and gearUp then
+		gearUp = false
+		say(tr("h_gear_auto"))
+		ui()
+	end
+	local gTarget = gearUp and 1 or 0
+	gearAnim += math.clamp(gTarget - gearAnim, -1.0 * dt, 1.0 * dt)
+
+	-- การหมุนเครื่อง
+	if onGround then
+		local canRotate = speed >= ROTATE_SPEED
+		local p = (canRotate and pitchIn > 0) and pitchIn or 0
+		local taxi = -yawIn * 0.55 * math.clamp(speed / 25, 0, 1)
+		ctrl = ctrl * CFrame.Angles(p * PITCH_RATE * dt, taxi * dt, 0)
+		if p == 0 then
+			local lk = ctrl.LookVector
+			local fl = Vector3.new(lk.X, 0, lk.Z)
+			if fl.Magnitude < 0.05 then fl = Vector3.new(0, 0, -1) end
+			ctrl = ctrl:Lerp(CFrame.lookAt(Vector3.zero, fl.Unit), 1 - math.exp(-5 * dt))
+		end
+	else
+		local bank = math.atan2(ctrl.RightVector.Y, ctrl.UpVector.Y)
+		ctrl = ctrl * CFrame.Angles(pitchIn * PITCH_RATE * dt, -yawIn * YAW_RATE * dt + bank * BANK_TURN * dt, -rollIn * ROLL_RATE * dt)
+	end
+	jetPos += ctrl.LookVector * speed * dt
+
+	-- stall
+	if not onGround then
+		local sink = math.clamp((STALL_SPEED - speed) / STALL_SPEED, 0, 1)
+		if sink > 0 then
+			jetPos += Vector3.new(0, -sink * 70 * dt, 0)
+			ctrl = ctrl * CFrame.Angles(-sink * 0.6 * dt, 0, 0)
+		end
+	end
+
+	-- พื้น
+	onGround = false
+	local hit = workspace:Raycast(jetPos, Vector3.new(0, -(gearH + 3), 0), rp)
+	if hit and jetPos.Y - hit.Position.Y <= gearH + 0.3 then
+		local lifting = speed >= ROTATE_SPEED and ctrl.LookVector.Y > 0.06
+		if not lifting then
+			onGround = true
+			jetPos = Vector3.new(jetPos.X, hit.Position.Y + gearH, jetPos.Z)
+		end
+	end
+	if onGround and not wasGround then
+		local sinkRate = (prevY - jetPos.Y) / dt
+		if sinkRate > 30 then shake = math.max(shake, math.clamp(sinkRate / 100, 0, 1.2)) end
+	end
+
+	-- วางโมเดล + ล้อ/ฝาช่องล้อ
+	local jetCF = CFrame.new(jetPos) * ctrl.Rotation * CFrame.Angles(0, math.rad(yawOff), 0)
+	local pivotCF = jetCF * CFrame.new(-centerOff)
+	jet:PivotTo(pivotCF)
+	applyGear(pivotCF)
+
+	-- ปืนกล
+	if firing and weapon == 1 and gunAmmo > 0 then
+		gunAcc += dt * 100
+		local n = math.min(math.floor(gunAcc), gunAmmo)
+		if n > 0 then
+			gunAcc -= n
+			gunAmmo -= n
+			fireGun(n)
+		end
+	elseif not firing then
+		gunAcc = 0
+	end
+
+	-- เติมอาวุธเมื่อจอดนิ่ง ดับเครื่อง
+	if onGround and speed < 1 and not engineOn then
+		rearmTimer += dt
+		if rearmTimer > 2.5 then
+			rearmOrd(pivotCF)
+			gunAmmo = GUN_MAX
+			fallback = table.clone(FALLBACK_AMMO)
+		end
+	else
+		rearmTimer = 0
+	end
+
+	-- นักบิน
+	local seatWorld = pivotCF:PointToWorldSpace(seatBase) + ctrl:VectorToWorldSpace(seatNudge)
+	hrp.CFrame = CFrame.new(seatWorld) * ctrl.Rotation * CFrame.Angles(math.rad(seatTilt), 0, 0)
+	if hum then
+		hum.Sit = true
+		hum.AutoRotate = false
+	end
+	local first = camMode == "FIRST"
+	local hideChar = first and 1 or 0
+	for _, p in ipairs(char:GetDescendants()) do
+		if p:IsA("BasePart") then p.LocalTransparencyModifier = hideChar end
+	end
+
+	-- กล้อง: ใช้ขอบฟ้าโลกเป็นหลัก ตามทิศเครื่องแบบหน่วงนุ่ม ไม่ล็อคกับเครื่อง
+	local rate = first and CAM_SMOOTH_FIRST or CAM_SMOOTH_FREE
+	local ka = 1 - math.exp(-rate * dt)
+	camLook = camLook:Lerp(ctrl.LookVector, ka)
+	if camLook.Magnitude < 0.01 then camLook = ctrl.LookVector end
+	camLook = camLook.Unit
+	local rollFollow = first and CAM_ROLL_FIRST or CAM_ROLL_FREE
+	local upTarget = Vector3.yAxis:Lerp(ctrl.UpVector, rollFollow)
+	if upTarget.Magnitude < 0.01 then upTarget = ctrl.UpVector end
+	camUpV = camUpV:Lerp(upTarget.Unit, ka).Unit
+	local upUse = (math.abs(camLook:Dot(camUpV)) > 0.98) and ctrl.UpVector or camUpV
+	local camBase = CFrame.lookAt(Vector3.zero, camLook, upUse)
+
+	local eye = CFrame.new(seatWorld) * ctrl.Rotation * CFrame.new(0, 1.6, 0)
+	if first then
+		cam.CFrame = CFrame.new(eye.Position) * camBase.Rotation * CFrame.Angles(math.rad(camPitch), math.rad(camYaw), 0)
+	else
+		local rot = CFrame.new(jetPos) * camBase.Rotation * CFrame.Angles(0, math.rad(camYaw), 0) * CFrame.Angles(math.rad(camPitch), 0, 0)
+		local camPos = (rot * CFrame.new(0, camHeight, camDist)).Position
+		cam.CFrame = CFrame.lookAt(camPos, jetPos, camBase.UpVector)
+	end
+	updateNearHide(eye.Position, first)
+
+	if firing and weapon == 1 then shake = math.max(shake, 0.03) end
+	if shake > 0.01 then
+		cam.CFrame *= CFrame.new((math.random() - 0.5) * shake, (math.random() - 0.5) * shake, 0)
+		shake *= (1 - math.min(1, dt * 4))
+	end
+	cam.FieldOfView += ((camFov + (ab and 8 or 0)) - cam.FieldOfView) * math.min(1, dt * 3)
+
+	-- เสียงเครื่องยนต์
+	local volT = engineOn and (0.5 + 1.0 * throttle) or 0
+	local pitchT = engineOn and (0.75 + 0.5 * throttle + 0.3 * (speed / MAX_SPEED) + (ab and 0.15 or 0)) or 0.4
+	engSnd.Volume += (volT - engSnd.Volume) * math.min(1, dt * 2.5)
+	engSnd.PlaybackSpeed += (pitchT - engSnd.PlaybackSpeed) * math.min(1, dt * 2)
+
+	-- HUD
+	local look = ctrl.LookVector
+	local hdg = math.deg(math.atan2(look.X, -look.Z)) % 360
+	local state = ""
+	if not engineOn then
+		state = tr((onGround and speed < 1) and "st_parked" or "st_engoff")
+	elseif onGround then
+		state = tr("st_gnd")
+	end
+	if gearUp then state = state .. " " .. tr("st_gup") end
+	hudText.Text = string.format("%s %03d  %s %04d  %s %03d  %s  %s",
+		tr("spd"), speed * 1.94, tr("alt"), jetPos.Y, tr("hdg"), hdg, wpnText(), state)
+	if os.clock() < hintUntil then hudText.Text = hint end
+
+	horizon.Rotation = math.deg(math.atan2(ctrl.RightVector.Y, ctrl.UpVector.Y))
+	horizon.Position = UDim2.new(0.5, 0, 0.5, math.deg(math.asin(math.clamp(look.Y, -1, 1))) * 3)
+
+	local sp, onScreen = cam:WorldToViewportPoint(jetPos + ctrl.LookVector * 300)
+	local inset = GuiService:GetGuiInset()
+	cross.Visible = onScreen
+	if onScreen then cross.Position = UDim2.fromOffset(sp.X - inset.X, sp.Y - inset.Y) end
+end)
+
+-- เริ่มต้น
+hudText.Text = tr("standby")
+ui()
+print("[F16] script loaded OK")
